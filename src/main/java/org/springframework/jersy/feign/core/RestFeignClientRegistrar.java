@@ -125,7 +125,7 @@ public class RestFeignClientRegistrar implements ImportBeanDefinitionRegistrar, 
 
         for (Class<?> clazz : interceptors) {
 
-            if (RequestInterceptor.class.isAssignableFrom(clazz)) {
+            if (!RequestInterceptor.class.isAssignableFrom(clazz)) {
                 throw new IllegalStateException("not valid class ,except:" + RequestInterceptor.class + "but:" + clazz);
             }
 
