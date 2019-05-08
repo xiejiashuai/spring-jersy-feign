@@ -7,9 +7,8 @@ import feign.RequestInterceptor;
 import java.lang.annotation.*;
 
 /**
- * @Author xiejs
- * @Description
- * @Date Created in 2018/8/21 17:21
+ *
+ * @author jiashuai.xie
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)

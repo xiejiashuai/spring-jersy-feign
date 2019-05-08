@@ -38,44 +38,28 @@ import java.util.stream.Stream;
  */
 public class RestFeignClientRegistrar implements ImportBeanDefinitionRegistrar, EnvironmentAware, ResourceLoaderAware {
 
+    private static final String SCAN_BASE_PACKAGES_ATTR = "scanBasePackages";
 
     private Environment environment;
 
     private ResourceLoader resourceLoader;
 
     @Override
+    public void setEnvironment(Environment environment) {
+        this.environment = environment;
+    }
+
+    @Override
+    public void setResourceLoader(ResourceLoader resourceLoader) {
+        this.resourceLoader = resourceLoader;
+    }
+
+    @Override
     public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {
 
-        Map<String, Object> attrs = importingClassMetadata.getAnnotationAttributes(EnableRestFeignClients.class.getName());
+        ClassPathBeanDefinitionScanner beanDefinitionScanner = getClassPathBeanDefinitionScanner(registry);
 
-        Class<?>[] clientClasses = (Class<?>[]) attrs.get("clients");
-
-        // 不扫描component以及派生注解
-        ClassPathBeanDefinitionScanner beanDefinitionScanner = new ClassPathBeanDefinitionScanner(registry, false, environment) {
-
-            @Override
-            protected boolean isCandidateComponent(AnnotatedBeanDefinition beanDefinition) {
-                boolean isCandidate = false;
-                // 必须是独立的类
-                if (beanDefinition.getMetadata().isIndependent()) {
-                    isCandidate = true;
-                }
-                return isCandidate;
-            }
-        };
-        beanDefinitionScanner.setResourceLoader(resourceLoader);
-
-        // 只扫描RestFeignClient注解
-        AnnotationTypeFilter annotationTypeFilter = new AnnotationTypeFilter(RestFeignClient.class);
-
-        beanDefinitionScanner.addIncludeFilter(annotationTypeFilter);
-
-        Set<String> scanPackageNames = new HashSet<>();
-
-        Stream.of(clientClasses).forEach(clientClass -> {
-            scanPackageNames.add(ClassUtils.getPackageName(clientClass));
-        });
-
+        Set<String> scanPackageNames = getScanPackages(importingClassMetadata);
 
         for (String scanPackageName : scanPackageNames) {
 
@@ -84,17 +68,13 @@ public class RestFeignClientRegistrar implements ImportBeanDefinitionRegistrar, 
             for (BeanDefinition candidateComponent : candidateComponents) {
 
                 if (candidateComponent instanceof AnnotatedBeanDefinition) {
+
                     AnnotatedBeanDefinition beanDefinition = (AnnotatedBeanDefinition) candidateComponent;
-                    // 获取元信息
                     AnnotationMetadata annotationMetadata = beanDefinition.getMetadata();
-
-                    // 校验
                     Assert.isTrue(annotationMetadata.isInterface(), "@RestFeignClient can only be specified on an interface");
-
-                    /// 获取注解信息 url =xxx
                     Map<String, Object> annotationAttributes = annotationMetadata.getAnnotationAttributes(RestFeignClient.class.getName());
 
-                    // 注册为BeanDefinition
+                    // do register
                     registerRestFeignClients(annotationAttributes, annotationMetadata, registry);
 
                 }
@@ -106,31 +86,46 @@ public class RestFeignClientRegistrar implements ImportBeanDefinitionRegistrar, 
 
     }
 
+    /**
+     * get {@link ClassPathBeanDefinitionScanner} to scan {@link RestFeignClient} bean definition
+     *
+     * @param registry bean definition registry
+     * @return ClassPathBeanDefinitionScanner
+     */
+    private ClassPathBeanDefinitionScanner getClassPathBeanDefinitionScanner(BeanDefinitionRegistry registry) {
+        // don't scan @Component
+        ClassPathBeanDefinitionScanner beanDefinitionScanner = new ClassPathBeanDefinitionScanner(registry, false, environment) {
+
+            @Override
+            protected boolean isCandidateComponent(AnnotatedBeanDefinition beanDefinition) {
+                boolean isCandidate = false;
+                if (beanDefinition.getMetadata().isIndependent()) {
+                    isCandidate = true;
+                }
+                return isCandidate;
+            }
+        };
+        beanDefinitionScanner.setResourceLoader(resourceLoader);
+        // scan @RestFeignClient
+        AnnotationTypeFilter annotationTypeFilter = new AnnotationTypeFilter(RestFeignClient.class);
+        beanDefinitionScanner.addIncludeFilter(annotationTypeFilter);
+        return beanDefinitionScanner;
+    }
+
     private void registerRestFeignClients(Map<String, Object> annotationAttributes, AnnotationMetadata annotationMetadata, BeanDefinitionRegistry registry) {
 
         String beanName = getName(annotationAttributes, annotationMetadata);
-
-        // 获取url信息
         String url = (String) annotationAttributes.get("url");
-
-        // 获取是否为https
         Boolean isSecure = (Boolean) annotationAttributes.get("isSecure");
-
-        // 是否为单例
         Boolean singleton = (Boolean) annotationAttributes.get("singleton");
-
         Logger.Level level = (Logger.Level) annotationAttributes.get("level");
 
-        Class<?>[] interceptors = (Class<?>[]) annotationAttributes.get("interceptors");
-
+        Class<? super RequestInterceptor>[] interceptors = (Class<? super RequestInterceptor>[]) annotationAttributes.get("interceptors");
         for (Class<?> clazz : interceptors) {
-
             if (!RequestInterceptor.class.isAssignableFrom(clazz)) {
                 throw new IllegalStateException("not valid class ,except:" + RequestInterceptor.class + "but:" + clazz);
             }
-
         }
-
 
         BeanDefinitionBuilder beanDefinitionBuilder = BeanDefinitionBuilder.genericBeanDefinition(RestFeignClientFactoryBean.class);
         beanDefinitionBuilder.addPropertyValue("targetType", annotationMetadata.getClassName());
@@ -141,13 +136,19 @@ public class RestFeignClientRegistrar implements ImportBeanDefinitionRegistrar, 
         beanDefinitionBuilder.addPropertyValue("level", level);
         beanDefinitionBuilder.addPropertyValue("interceptors", Arrays.asList(interceptors));
         beanDefinitionBuilder.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_BY_TYPE);
-
         BeanDefinitionHolder beanDefinitionHolder = new BeanDefinitionHolder(beanDefinitionBuilder.getBeanDefinition(), beanName);
 
         BeanDefinitionReaderUtils.registerBeanDefinition(beanDefinitionHolder, registry);
 
     }
 
+    /**
+     * get rest feign client name
+     *
+     * @param attributes
+     * @param annotationMetadata
+     * @return
+     */
     private String getName(Map<String, Object> attributes, AnnotationMetadata annotationMetadata) {
 
         String name = (String) attributes.get("name");
@@ -162,14 +163,36 @@ public class RestFeignClientRegistrar implements ImportBeanDefinitionRegistrar, 
 
     }
 
+    /**
+     * get packages to scan By {@link ClassPathBeanDefinitionScanner}
+     *
+     * @param importingClassMetadata
+     * @return scan packages
+     */
+    private Set<String> getScanPackages(AnnotationMetadata importingClassMetadata) {
+        Map<String, Object> attributes = importingClassMetadata.getAnnotationAttributes(EnableRestFeignClients.class.getCanonicalName());
+        Class<?>[] clientClasses = (Class<?>[]) attributes.get("clients");
+        Set<String> scanPackageNames = new HashSet<>();
+        // use scanBasePackages
+        if (clientClasses == null || clientClasses.length == 0) {
+            for (String pkg : (String[]) attributes.get(SCAN_BASE_PACKAGES_ATTR)) {
+                if (StringUtils.hasText(pkg)) {
+                    scanPackageNames.add(pkg);
+                }
+            }
+            if (scanPackageNames.isEmpty()) {
+                // if not assign scanBasePackages , use EnableRestFeignClients location package instead
+                scanPackageNames.add(ClassUtils.getPackageName(importingClassMetadata.getClassName()));
+            }
 
-    @Override
-    public void setEnvironment(Environment environment) {
-        this.environment = environment;
+        } else {
+            // use clients
+            Stream.of(clientClasses).forEach(clientClass -> {
+                scanPackageNames.add(ClassUtils.getPackageName(clientClass));
+            });
+        }
+        return scanPackageNames;
     }
 
-    @Override
-    public void setResourceLoader(ResourceLoader resourceLoader) {
-        this.resourceLoader = resourceLoader;
-    }
+
 }

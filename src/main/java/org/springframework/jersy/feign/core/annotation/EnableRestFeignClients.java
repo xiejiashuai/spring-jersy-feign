@@ -16,4 +16,10 @@ public @interface EnableRestFeignClients {
      */
     Class<?>[] clients() default {};
 
+    /**
+     * scan {@link RestFeignClient} base package
+     * @return
+     */
+    String[] scanBasePackages() default {};
+
 }

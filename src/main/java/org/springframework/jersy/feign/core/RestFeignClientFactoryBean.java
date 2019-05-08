@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
+ *  RestFeignClient Implement {@link FactoryBean}
+ *
  * @author jiashuai.xie
  */
 @Data
@@ -83,7 +85,7 @@ public class RestFeignClientFactoryBean implements FactoryBean, EnvironmentAware
 
         }
 
-        log.info("will go to instantiate rest feign client for:{},prefix-url:{},logger-level:{}", targetType, actualPrefixUrl, String.valueOf(level));
+        log.info("<---------- will go to instantiate rest feign client for:{},prefix-url:{},logger-level:{}---------->", targetType, actualPrefixUrl, String.valueOf(level));
 
         Feign.Builder builder = Feign.builder()
                 .encoder(new FastJsonEncoder())
@@ -108,10 +110,9 @@ public class RestFeignClientFactoryBean implements FactoryBean, EnvironmentAware
 
         }
 
-
         Object proxy = builder.target(targetType, actualPrefixUrl);
 
-        log.info("success to instantiate rest feign client for:{}", targetType);
+        log.info("<----------success to instantiate rest feign client for:{}---------->", targetType);
 
         return proxy;
     }
@@ -127,11 +128,6 @@ public class RestFeignClientFactoryBean implements FactoryBean, EnvironmentAware
         return singleton;
     }
 
-    /**
-     * 解决占位符
-     *
-     * @return
-     */
     private String resolvePlaceholders() {
 
         String actualPrefixUrl = environment.resolvePlaceholders(prefixUrl);
